@@ -1362,6 +1362,8 @@ void *SWITCH_THREAD_FUNC sofia_profile_thread_run(switch_thread_t *thread, void 
 				   NUTAG_APPL_METHOD("BYE"),
 #endif
 				   NUTAG_AUTOANSWER(0),
+				   NUTAG_AUTO302(0),
+				   NUTAG_AUTO305(0),
 				   NUTAG_AUTOACK(0),
 				   NUTAG_AUTOALERT(0),
 				   NUTAG_ENABLEMESSENGER(1),
