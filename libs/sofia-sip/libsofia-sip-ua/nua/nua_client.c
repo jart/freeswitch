@@ -1124,7 +1124,7 @@ int nua_base_client_check_restart(nua_client_request_t *cr,
 {
   nua_handle_t *nh = cr->cr_owner;
   nta_outgoing_t *orq;
-#if 0
+
   if (status == 302 || status == 305) {
     sip_route_t r[1];
 
@@ -1155,7 +1155,7 @@ int nua_base_client_check_restart(nua_client_request_t *cr,
       break;
     }
   }
-#endif
+
 
   if (status == 423) {
     unsigned my_expires = 0;
@@ -1215,7 +1215,7 @@ int nua_base_client_check_restart(nua_client_request_t *cr,
     }
   }
 
-  if (0 && 500 <= status && status < 600 &&
+  if (500 <= status && status < 600 &&
       sip->sip_retry_after &&
       sip->sip_retry_after->af_delta < 32) {
     su_timer_t *timer;
