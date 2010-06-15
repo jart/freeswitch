@@ -1287,7 +1287,7 @@ OZ_DECLARE(zap_status_t) zap_channel_open(uint32_t span_id, uint32_t chan_id, za
 	zap_status_t status = ZAP_FAIL;
 	zap_span_t *span = NULL;
 
-	zap_mutex_unlock(globals.mutex);
+	zap_mutex_lock(globals.mutex);
 	zap_span_find(span_id, &span);
 
 	if (!span || !zap_test_flag(span, ZAP_SPAN_CONFIGURED) || chan_id >= ZAP_MAX_CHANNELS_SPAN) {
@@ -1313,11 +1313,12 @@ OZ_DECLARE(zap_status_t) zap_channel_open(uint32_t span_id, uint32_t chan_id, za
 		*zchan = NULL;
 		goto done;
 	}
-	
-	status = ZAP_FAIL;
 
-	if (zap_test_flag(check, ZAP_CHANNEL_READY) && (!zap_test_flag(check, ZAP_CHANNEL_INUSE) || 
-													(check->type == ZAP_CHAN_TYPE_FXS && check->token_count == 1))) {
+	status = ZAP_FAIL;	
+	if ((!zap_test_flag(check, ZAP_CHANNEL_INUSE)) || 
+	    (check->type == ZAP_CHAN_TYPE_FXS && 
+	     check->token_count == 1 &&
+	     zap_channel_test_feature(check, ZAP_CHANNEL_FEATURE_CALLWAITING))) {
 		if (!zap_test_flag(check, ZAP_CHANNEL_OPEN)) {
 			status = check->zio->open(check);
 			if (status == ZAP_SUCCESS) {
@@ -1535,6 +1536,7 @@ OZ_DECLARE(zap_status_t) zap_channel_command(zap_channel_t *zchan, zap_command_t
 			}
 			GOTO_STATUS(done, ZAP_SUCCESS);
 		}
+		break;
 	case ZAP_COMMAND_SET_INTERVAL:
 		{
 			if (!zap_channel_test_feature(zchan, ZAP_CHANNEL_FEATURE_INTERVAL)) {
@@ -1628,35 +1630,23 @@ OZ_DECLARE(zap_status_t) zap_channel_command(zap_channel_t *zchan, zap_command_t
 		{
 			/* if they don't have thier own, use ours */
 			if (!zap_channel_test_feature(zchan, ZAP_CHANNEL_FEATURE_DTMF_DETECT)) {
-				zap_tone_type_t tt = ZAP_COMMAND_OBJ_INT;
-				if (tt == ZAP_TONE_DTMF) {
-					teletone_dtmf_detect_init (&zchan->dtmf_detect, zchan->rate);
-					zap_set_flag_locked(zchan, ZAP_CHANNEL_DTMF_DETECT);
-					zap_set_flag_locked(zchan, ZAP_CHANNEL_SUPRESS_DTMF);
-					GOTO_STATUS(done, ZAP_SUCCESS);
-				} else {
-					snprintf(zchan->last_error, sizeof(zchan->last_error), "invalid command");
-					GOTO_STATUS(done, ZAP_FAIL);
-				}
+				teletone_dtmf_detect_init (&zchan->dtmf_detect, zchan->rate);
+				zap_set_flag_locked(zchan, ZAP_CHANNEL_DTMF_DETECT);
+				zap_set_flag_locked(zchan, ZAP_CHANNEL_SUPRESS_DTMF);
+				GOTO_STATUS(done, ZAP_SUCCESS);
 			}
 		}
 		break;
 	case ZAP_COMMAND_DISABLE_DTMF_DETECT:
 		{
 			if (!zap_channel_test_feature(zchan, ZAP_CHANNEL_FEATURE_DTMF_DETECT)) {
-				zap_tone_type_t tt = ZAP_COMMAND_OBJ_INT;
-                if (tt == ZAP_TONE_DTMF) {
-                    teletone_dtmf_detect_init (&zchan->dtmf_detect, zchan->rate);
-                    zap_clear_flag(zchan, ZAP_CHANNEL_DTMF_DETECT);
-					zap_clear_flag(zchan, ZAP_CHANNEL_SUPRESS_DTMF);
-					GOTO_STATUS(done, ZAP_SUCCESS);
-                } else {
-                    snprintf(zchan->last_error, sizeof(zchan->last_error), "invalid command");
-					GOTO_STATUS(done, ZAP_FAIL);
-                }
+                    		teletone_dtmf_detect_init (&zchan->dtmf_detect, zchan->rate);
+                    		zap_clear_flag(zchan, ZAP_CHANNEL_DTMF_DETECT);
+				zap_clear_flag(zchan, ZAP_CHANNEL_SUPRESS_DTMF);
+				GOTO_STATUS(done, ZAP_SUCCESS);
 			}
 		}
-
+		break;
 	case ZAP_COMMAND_SET_PRE_BUFFER_SIZE:
 		{
 			int val = ZAP_COMMAND_OBJ_INT;

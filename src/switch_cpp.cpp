@@ -1135,6 +1135,20 @@ SWITCH_DECLARE(void) CoreSession::setHangupHook(void *hangup_func) {
 
 /* ---- methods not bound to CoreSession instance ---- */
 
+
+SWITCH_DECLARE(int) globalSetVariable(const char *var, const char *val, const char *val2)
+{
+	if (zstr(val)) val = NULL;
+	if (zstr(val2)) val2 = NULL;
+	
+	if (val2) {
+		return switch_core_set_var_conditional(var, val, val2);
+	} else {
+		switch_core_set_variable(var, val);
+		return SWITCH_STATUS_SUCCESS;
+	}
+}
+
 SWITCH_DECLARE(void) consoleLog(char *level_str, char *msg)
 {
 	return console_log(level_str, msg);

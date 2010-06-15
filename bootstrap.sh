@@ -1,6 +1,18 @@
 #!/bin/sh
 echo "bootstrap: checking installation..."
 
+BGJOB=false
+while getopts jh arg
+do 
+  case $arg in
+    j) BGJOB=true;;
+    h) echo "Usage: $0 <options>"
+       echo "  Options:"
+       echo "           -j => Run Jobs in Background"
+       exit;;
+  esac
+done
+
 BASEDIR=`pwd`;
 LIBDIR=${BASEDIR}/libs;
 SUBDIRS="ilbc curl iksemel js js/nsprpub libdingaling libedit libsndfile pcre sofia-sip \
@@ -264,16 +276,11 @@ ${AUTOCONF:-autoconf}
 echo "Creating include/arch/unix/apr_private.h.in ..."
 ${AUTOHEADER:-autoheader}
 
-
-# Remove autoconf 2.5x's cache directory
-rm -rf autom4te*.cache
-
-echo "Entering directory ${LIBDIR}/apr-util"
-cd ${LIBDIR}/apr-util
-./buildconf
-
-for i in ${SUBDIRS}
-do
+# Libs automake automation function
+libbootstrap()
+{
+  i=$1
+  if [ -d ${LIBDIR}/${i} ] ; then
   echo "Entering directory ${LIBDIR}/${i}"
   cd ${LIBDIR}/${i}
   rm -f aclocal.m4
@@ -323,8 +330,36 @@ do
       fi
       rm -rf autom4te*.cache
   fi
+  else
+      echo "Skipping directory ${LIBDIR}/${i}"
+  fi
+}
+
+
+# Remove autoconf 2.5x's cache directory
+rm -rf autom4te*.cache
+
+echo "Entering directory ${LIBDIR}/apr-util"
+cd ${LIBDIR}/apr-util
+if [ "${BGJOB}" == "false" ] ; then
+	./buildconf
+else
+	./buildconf &
+fi
+
+
+for i in ${SUBDIRS}
+do
+  if [ "${BGJOB}" == "false" ] ; then
+  	libbootstrap ${i}
+  else
+	libbootstrap ${i} &
+  fi
 done
 
+if [ "${BGJOB}" == "true" ] ; then
+	wait
+fi
 cd ${BASEDIR}
 
 rm -f aclocal.m4

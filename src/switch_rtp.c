@@ -1045,8 +1045,11 @@ SWITCH_DECLARE(switch_status_t) switch_rtp_udptl_mode(switch_rtp_t *rtp_session)
 	WRITE_DEC(rtp_session);
 	READ_DEC(rtp_session);
 
-	switch_set_flag_locked(rtp_session, SWITCH_RTP_FLAG_FLUSH);
+	switch_clear_flag_locked(rtp_session, SWITCH_RTP_FLAG_STICKY_FLUSH);
+	switch_clear_flag_locked(rtp_session, SWITCH_RTP_FLAG_FLUSH);
 
+	switch_rtp_break(rtp_session);
+	
 	return SWITCH_STATUS_SUCCESS;
 
 }
@@ -1380,7 +1383,9 @@ SWITCH_DECLARE(switch_status_t) switch_rtp_create(switch_rtp_t **new_rtp_session
 		switch_clear_flag_locked(rtp_session, SWITCH_RTP_FLAG_NOBLOCK);
 	}
 
-	switch_channel_set_private(channel, "__rtcp_audio_rtp_session", rtp_session);
+	if (channel) {
+		switch_channel_set_private(channel, "__rtcp_audio_rtp_session", rtp_session);
+	}
 
 #ifdef ENABLE_ZRTP
 	if (zrtp_on) {
@@ -2038,7 +2043,7 @@ static switch_status_t read_rtp_packet(switch_rtp_t *rtp_session, switch_size_t 
 
 	if (rtp_session->jb && rtp_session->recv_msg.header.version == 2 && *bytes) {
 		if (rtp_session->recv_msg.header.m && rtp_session->recv_msg.header.pt != rtp_session->recv_te && 
-			!switch_test_flag(rtp_session, SWITCH_RTP_FLAG_VIDEO)) {
+			!switch_test_flag(rtp_session, SWITCH_RTP_FLAG_VIDEO) && !(rtp_session->rtp_bugs & RTP_BUG_IGNORE_MARK_BIT)) {
 			stfu_n_reset(rtp_session->jb);
 		}
 
@@ -2250,6 +2255,7 @@ static int rtp_common_read(switch_rtp_t *rtp_session, switch_payload_t *payload_
 			if (rtp_session->dtmf_data.out_digit_dur > 0) {
 				pt = 20000;
 			}
+			
 			poll_status = switch_poll(rtp_session->read_pollfd, 1, &fdr, pt);
 			if (rtp_session->dtmf_data.out_digit_dur > 0) {
 				do_2833(rtp_session);
@@ -2274,7 +2280,7 @@ static int rtp_common_read(switch_rtp_t *rtp_session, switch_payload_t *payload_
 					goto end;
 				}
 			}
-
+			
 			if (rtp_session->dtmf_data.out_digit_dur == 0 || switch_test_flag(rtp_session, SWITCH_RTP_FLAG_VIDEO)) {
 				return_cng_frame();
 			}
@@ -2389,7 +2395,7 @@ static int rtp_common_read(switch_rtp_t *rtp_session, switch_payload_t *payload_
 		}
 
 		if (bytes && rtp_session->recv_msg.header.m && rtp_session->recv_msg.header.pt != rtp_session->recv_te && 
-			!switch_test_flag(rtp_session, SWITCH_RTP_FLAG_VIDEO)) {
+			!switch_test_flag(rtp_session, SWITCH_RTP_FLAG_VIDEO) && !(rtp_session->rtp_bugs & RTP_BUG_IGNORE_MARK_BIT)) {
 			rtp_flush_read_buffer(rtp_session, SWITCH_RTP_FLUSH_ONCE);
 		}
 

@@ -189,8 +189,7 @@ static switch_bool_t cidlookup_execute_sql_callback(char *sql, switch_core_db_ca
 	switch_cache_db_handle_t *dbh = NULL;
 
 	if (globals.odbc_dsn && (dbh = cidlookup_get_db_handle())) {
-		if (switch_cache_db_execute_sql_callback(dbh, sql, callback, (void *) cbt, err)
-			== SWITCH_ODBC_FAIL) {
+		if (switch_cache_db_execute_sql_callback(dbh, sql, callback, (void *) cbt, err) != SWITCH_STATUS_SUCCESS) {
 			retval = SWITCH_FALSE;
 		} else {
 			retval = SWITCH_TRUE;
@@ -468,7 +467,12 @@ static cid_data_t *do_whitepages_lookup(switch_memory_pool_t *pool, switch_event
 
 	query = switch_event_expand_headers(event, "http://api.whitepages.com/reverse_phone/1.0/?phone=${whitepages-cid};api_key=${whitepages-api-key}");
 	do_lookup_url(pool, event, &xml_s, query, NULL, NULL, 0);
-
+	
+	if (zstr(xml_s)) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "No XML returned for number %s\n", num);
+		goto done;
+	}
+	
 	xml = switch_xml_parse_str_dup(xml_s);
 
 	if (!xml) {
@@ -625,7 +629,17 @@ static cid_data_t *do_lookup(switch_memory_pool_t *pool, switch_event_t *event, 
 		cid->area = "UNKNOWN";
 	}
 	if (!cid->name) {
-		cid->name = cid->area;
+		if (skipcitystate) {
+			if (strlen(number) == 11 && number[0] == '1') {
+				int a, b, c;
+				sscanf(number, "1%3d%3d%4d", &a, &b, &c);
+				cid->name = switch_core_sprintf(pool, "%03d-%03d-%04d", a, b, c);
+			} else {
+				cid->name = number;
+			}
+		} else {
+			cid->name = cid->area;
+		}
 	}
 	if (!cid->src) {
 		cid->src = "UNKNOWN";

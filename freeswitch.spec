@@ -25,6 +25,7 @@ Source7:	http://files.freeswitch.org/downloads/libs/pocketsphinx-0.5.99-latest.t
 Source8:	http://files.freeswitch.org/downloads/libs/soundtouch-1.3.1.tar.gz
 Source9:	http://files.freeswitch.org/downloads/libs/sphinxbase-0.4.99-latest.tar.gz
 Source10:	http://files.freeswitch.org/downloads/libs/communicator_semi_6000_20080321.tar.gz
+Source11:	http://files.freeswitch.org/downloads/libs/libmemcached-0.32.tar.gz
 Prefix:        %{prefix}
 
 #AutoReqProv:  no
@@ -215,6 +216,7 @@ cp %{SOURCE7} libs/
 cp %{SOURCE8} libs/
 cp %{SOURCE9} libs/
 cp %{SOURCE10} libs/
+cp %{SOURCE11} libs/
 
 
 %build
@@ -228,8 +230,8 @@ export QA_RPATHS=$[ 0x0001|0x0002 ]
 %endif
 
 PASSTHRU_CODEC_MODULES="codecs/mod_g729 codecs/mod_g723_1 codecs/mod_amr codecs/mod_amrwb"
-APPLICATIONS_MODULES="applications/mod_commands applications/mod_conference applications/mod_dptools applications/mod_enum applications/mod_esf applications/mod_expr applications/mod_fifo applications/mod_limit applications/mod_rss applications/mod_voicemail applications/mod_directory applications/mod_fsv applications/mod_lcr applications/mod_easyroute applications/mod_stress applications/mod_vmd applications/mod_limit applications/mod_soundtouch applications/mod_fax"
-CODECS_MODULES="codecs/mod_ilbc codecs/mod_h26x codecs/mod_voipcodecs codecs/mod_speex codecs/mod_celt codecs/mod_siren codecs/mod_bv"
+APPLICATIONS_MODULES="applications/mod_commands applications/mod_conference applications/mod_dptools applications/mod_enum applications/mod_esf applications/mod_expr applications/mod_fifo applications/mod_limit applications/mod_rss applications/mod_voicemail applications/mod_directory applications/mod_fsv applications/mod_lcr applications/mod_easyroute applications/mod_stress applications/mod_vmd applications/mod_limit applications/mod_soundtouch applications/mod_spandsp"
+CODECS_MODULES="codecs/mod_ilbc codecs/mod_h26x codecs/mod_speex codecs/mod_celt codecs/mod_siren codecs/mod_bv"
 DIALPLANS_MODULES="dialplans/mod_dialplan_asterisk dialplans/mod_dialplan_directory dialplans/mod_dialplan_xml"
 DIRECTORIES_MODULES=""
 ENDPOINTS_MODULES="endpoints/mod_dingaling endpoints/mod_portaudio endpoints/mod_sofia ../../libs/openzap/mod_openzap endpoints/mod_loopback"
@@ -396,6 +398,7 @@ fi
 %config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/fax.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/fifo.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/shout.conf.xml
+%config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/spandsp.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/timezones.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/ivr.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/java.conf.xml
@@ -406,7 +409,6 @@ fi
 %config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/pocketsphinx.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/portaudio.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/post_load_modules.conf.xml
-%config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/python.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/rss.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/sangoma_codec.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{prefix}/conf/autoload_configs/skinny.conf.xml
@@ -474,7 +476,6 @@ fi
 %{prefix}/mod/mod_flite.so*
 %{prefix}/mod/mod_ilbc.so* 
 %{prefix}/mod/mod_h26x.so*
-%{prefix}/mod/mod_voipcodecs.so* 
 %{prefix}/mod/mod_speex.so* 
 %{prefix}/mod/mod_dialplan_directory.so* 
 %{prefix}/mod/mod_dialplan_xml.so* 
@@ -503,7 +504,7 @@ fi
 %{prefix}/mod/mod_bv.so
 %{prefix}/mod/mod_stress.so
 %{prefix}/mod/mod_shout.so
-%{prefix}/mod/mod_fax.so
+%{prefix}/mod/mod_spandsp.so
 %{prefix}/mod/mod_soundtouch.so
 %{prefix}/mod/mod_vmd.so
 %{prefix}/mod/mod_unimrcp.so

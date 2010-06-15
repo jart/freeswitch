@@ -1206,6 +1206,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_media(const char *uuid, switch_media_
 			status = SWITCH_STATUS_SUCCESS;
 			if (switch_core_session_receive_message(session, &msg) != SWITCH_STATUS_SUCCESS) {
 				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Can't re-establsh media on %s\n", switch_channel_get_name(channel));
+				switch_core_session_rwunlock(session);
 				return SWITCH_STATUS_GENERR;
 			}
 
@@ -1284,6 +1285,10 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_nomedia(const char *uuid, switch_medi
 
 				switch_channel_set_flag(other_channel, CF_RESET);
 				switch_channel_set_flag(other_channel, CF_REDIRECT);
+
+				if (!switch_core_session_in_thread(session)) {
+					switch_channel_set_state(channel, CS_PARK);
+				}
 				switch_channel_set_state(other_channel, CS_PARK);
 				if (switch_core_session_in_thread(session)) {
 					switch_yield(100000);
@@ -1298,15 +1303,14 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_nomedia(const char *uuid, switch_medi
 
 			switch_core_session_receive_message(session, &msg);
 
-			if (!switch_core_session_in_thread(session)) {
-				switch_channel_set_state(channel, CS_PARK);
-				switch_channel_wait_for_state(channel, channel, CS_PARK);
-				switch_channel_wait_for_flag(channel, CF_REQ_MEDIA, SWITCH_FALSE, 10000, NULL);
-				switch_channel_wait_for_flag(channel, CF_MEDIA_ACK, SWITCH_TRUE, 10000, NULL);
-				switch_channel_wait_for_flag(channel, CF_MEDIA_SET, SWITCH_TRUE, 10000, NULL);
-			}
-
 			if (other_channel) {
+				if (!switch_core_session_in_thread(session)) {
+					switch_channel_wait_for_state(channel, channel, CS_PARK);
+					switch_channel_wait_for_flag(channel, CF_REQ_MEDIA, SWITCH_FALSE, 10000, NULL);
+					switch_channel_wait_for_flag(channel, CF_MEDIA_ACK, SWITCH_TRUE, 10000, NULL);
+					switch_channel_wait_for_flag(channel, CF_MEDIA_SET, SWITCH_TRUE, 10000, NULL);
+				}
+
 				if (swap) {
 					switch_ivr_signal_bridge(other_session, session);
 				} else {
@@ -1401,6 +1405,21 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_session_transfer(switch_core_session_
 		new_profile->context = switch_core_strdup(new_profile->pool, context);
 		new_profile->destination_number = switch_core_strdup(new_profile->pool, extension);
 		new_profile->rdnis = switch_core_strdup(new_profile->pool, profile->destination_number);
+
+		if (switch_channel_direction(channel) == SWITCH_CALL_DIRECTION_OUTBOUND) {
+			if (profile->callee_id_name) {
+				switch_channel_set_variable(channel, "pre_transfer_caller_id_name", new_profile->caller_id_name);
+				new_profile->caller_id_name = switch_core_strdup(new_profile->pool, profile->callee_id_name);
+				profile->callee_id_name = NULL;
+			}
+
+			if (profile->callee_id_number) {
+				switch_channel_set_variable(channel, "pre_transfer_caller_id_number", new_profile->caller_id_number);
+				new_profile->caller_id_number = switch_core_strdup(new_profile->pool, profile->callee_id_number);
+				profile->callee_id_number = NULL;
+			}
+		}
+		
 
 		switch_channel_set_variable(channel, SWITCH_SIGNAL_BOND_VARIABLE, NULL);
 

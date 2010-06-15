@@ -90,6 +90,18 @@
     
       
 
+    <!-- Caller-ID type (choose one, can be overridden by inbound call type and/or sip_cid_type channel variable -->
+    <!-- Remote-Party-ID header -->
+    <!--<param name="caller-id-type" value="rpid"/>-->
+
+    <!-- P-*-Identity family of headers -->
+    <!--<param name="caller-id-type" value="pid"/>-->
+
+    <!-- neither one -->
+    <!--<param name="caller-id-type" value="none"/>-->
+
+
+
     <param name="record-path" value="$${recordings_dir}"/>
     <param name="record-template" value="${caller_id_number}.${target_domain}.${strftime(%Y-%m-%d-%H-%M-%S)}.wav"/>
     <!--enable to use presence -->
@@ -106,7 +118,7 @@
     <!--max number of open dialogs in proceeding -->
     <!--<param name="max-proceeding" value="1000"/>-->
     <!--session timers for all call to expire after the specified seconds -->
-    <!--<param name="session-timeout" value="120"/>-->
+    <!--<param name="session-timeout" value="1800"/>-->
     <!-- Can be 'true' or 'contact' -->
     <!--<param name="multiple-registrations" value="contact"/>-->
     <!--set to 'greedy' if you want your codec list to take precedence -->

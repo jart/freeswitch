@@ -134,8 +134,26 @@ typedef enum {
 	FTDM_OOB_CAS_BITS_CHANGE,
 	FTDM_OOB_INVALID
 } ftdm_oob_event_t;
-#define OOB_STRINGS "DTMF", "ONHOOK", "OFFHOOK", "WINK", "FLASH", "RING_START", "RING_STOP", "ALARM_TRAP", "ALARM_CLEAR", "NOOP", "CAS_BITS_CHANGE", "INVALID"
+#define OOB_STRINGS "ONHOOK", "OFFHOOK", "WINK", "FLASH", "RING_START", "RING_STOP", "ALARM_TRAP", "ALARM_CLEAR", "NOOP", "CAS_BITS_CHANGE", "INVALID"
 FTDM_STR2ENUM_P(ftdm_str2ftdm_oob_event, ftdm_oob_event2str, ftdm_oob_event_t)
+
+/*! \brief Event types */
+typedef enum {
+	FTDM_EVENT_NONE,
+	/* DTMF digit was just detected */
+	FTDM_EVENT_DTMF,
+	/* Out of band event */
+	FTDM_EVENT_OOB,
+	FTDM_EVENT_COUNT
+} ftdm_event_type_t;
+
+/*! \brief Generic event data type */
+struct ftdm_event {
+	ftdm_event_type_t e_type;
+	uint32_t enum_id;
+	ftdm_channel_t *channel;
+	void *data;
+};
 
 typedef enum {
 	FTDM_SIGTYPE_NONE,
@@ -158,13 +176,15 @@ typedef enum {
 	FTDM_SPAN_SUGGEST_CHAN_ID = (1 << 7),
 } ftdm_span_flag_t;
 
+/*! \brief Channel supported features */
 typedef enum {
-	FTDM_CHANNEL_FEATURE_DTMF_DETECT = (1 << 0),
-	FTDM_CHANNEL_FEATURE_DTMF_GENERATE = (1 << 1),
-	FTDM_CHANNEL_FEATURE_CODECS = (1 << 2),
-	FTDM_CHANNEL_FEATURE_INTERVAL = (1 << 3),
-	FTDM_CHANNEL_FEATURE_CALLERID = (1 << 4),
-	FTDM_CHANNEL_FEATURE_PROGRESS = (1 << 5)
+	FTDM_CHANNEL_FEATURE_DTMF_DETECT = (1 << 0), /*!< Channel can detect DTMF (read-only) */
+	FTDM_CHANNEL_FEATURE_DTMF_GENERATE = (1 << 1), /*!< Channel can generate DTMF (read-only) */
+	FTDM_CHANNEL_FEATURE_CODECS = (1 << 2), /*!< Channel can do transcoding (read-only) */
+	FTDM_CHANNEL_FEATURE_INTERVAL = (1 << 3), /*!< Channel support i/o interval configuration (read-only) */
+	FTDM_CHANNEL_FEATURE_CALLERID = (1 << 4), /*!< Channel can detect caller id (read-only) */
+	FTDM_CHANNEL_FEATURE_PROGRESS = (1 << 5), /*!< Channel can detect inband progress (read-only) */
+	FTDM_CHANNEL_FEATURE_CALLWAITING = (1 << 6), /*!< Channel will allow call waiting (ie: FXS devices) (read/write) */
 } ftdm_channel_feature_t;
 
 typedef enum {

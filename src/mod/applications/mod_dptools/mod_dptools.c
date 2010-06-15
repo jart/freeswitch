@@ -198,6 +198,16 @@ SWITCH_STANDARD_APP(soft_hold_function)
 	}
 }
 
+SWITCH_STANDARD_APP(dtmf_unblock_function)
+{
+	switch_ivr_unblock_dtmf_session(session);
+}
+
+SWITCH_STANDARD_APP(dtmf_block_function)
+{
+	switch_ivr_block_dtmf_session(session);
+}
+
 #define UNBIND_SYNTAX "[<key>]"
 SWITCH_STANDARD_APP(dtmf_unbind_function)
 {
@@ -344,8 +354,15 @@ SWITCH_STANDARD_APP(eavesdrop_function)
 	if (zstr(data)) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Usage: %s\n", eavesdrop_SYNTAX);
 	} else {
+		switch_eavesdrop_flag_t flags = ED_DTMF;
 		switch_channel_t *channel = switch_core_session_get_channel(session);
 		const char *require_group = switch_channel_get_variable(channel, "eavesdrop_require_group");
+		const char *enable_dtmf = switch_channel_get_variable(channel, "eavesdrop_enable_dtmf");
+
+		if (enable_dtmf) {
+			flags = switch_true(enable_dtmf) ? ED_DTMF : ED_NONE;
+		}
+
 		if (!strcasecmp((char *) data, "all")) {
 			switch_cache_db_handle_t *db = NULL;
 			char *errmsg = NULL;
@@ -372,7 +389,7 @@ SWITCH_STANDARD_APP(eavesdrop_function)
 				switch_cache_db_release_db_handle(&db);
 				if (errmsg) {
 					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Error: %s\n", errmsg);
-					switch_core_db_free(errmsg);
+					free(errmsg);
 					if ((file = switch_channel_get_variable(channel, "eavesdrop_indicate_failed"))) {
 						switch_ivr_play_file(session, NULL, file, NULL);
 					}
@@ -387,7 +404,7 @@ SWITCH_STANDARD_APP(eavesdrop_function)
 						if ((file = switch_channel_get_variable(channel, "eavesdrop_indicate_new"))) {
 							switch_ivr_play_file(session, NULL, file, NULL);
 						}
-						if ((status = switch_ivr_eavesdrop_session(session, e_data.uuid_list[x], require_group, ED_DTMF)) != SWITCH_STATUS_SUCCESS) {
+						if ((status = switch_ivr_eavesdrop_session(session, e_data.uuid_list[x], require_group, flags)) != SWITCH_STATUS_SUCCESS) {
 							if (status != SWITCH_STATUS_BREAK) {
 								switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Spy: %s Failed\n", e_data.uuid_list[x]);
 								if ((file = switch_channel_get_variable(channel, "eavesdrop_indicate_failed"))) {
@@ -412,7 +429,7 @@ SWITCH_STANDARD_APP(eavesdrop_function)
 			free(sql);
 
 		} else {
-			switch_ivr_eavesdrop_session(session, data, require_group, ED_DTMF);
+			switch_ivr_eavesdrop_session(session, data, require_group, flags);
 		}
 	}
 }
@@ -3101,6 +3118,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_dptools_load)
 				   SAF_SUPPORT_NOMEDIA);
 	SWITCH_ADD_APP(app_interface, "unbind_meta_app", "Unbind a key from an application", "Unbind a key from an application", dtmf_unbind_function,
 				   UNBIND_SYNTAX, SAF_SUPPORT_NOMEDIA);
+	SWITCH_ADD_APP(app_interface, "block_dfmf", "Block DTMF", "Block DTMF", dtmf_block_function, "", SAF_SUPPORT_NOMEDIA);
+	SWITCH_ADD_APP(app_interface, "unblock_dtmf", "Stop blocking DTMF", "Stop blocking DTMF", dtmf_unblock_function, "", SAF_SUPPORT_NOMEDIA);
 	SWITCH_ADD_APP(app_interface, "intercept", "intercept", "intercept", intercept_function, INTERCEPT_SYNTAX, SAF_NONE);
 	SWITCH_ADD_APP(app_interface, "eavesdrop", "eavesdrop on a uuid", "eavesdrop on a uuid", eavesdrop_function, eavesdrop_SYNTAX, SAF_MEDIA_TAP);
 	SWITCH_ADD_APP(app_interface, "three_way", "three way call with a uuid", "three way call with a uuid", three_way_function, threeway_SYNTAX,
@@ -3116,7 +3135,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_dptools_load)
 	SWITCH_ADD_APP(app_interface, "fax_detect", "Detect faxes", "Detect fax send tone", fax_detect_session_function, "", SAF_MEDIA_TAP);
 	SWITCH_ADD_APP(app_interface, "tone_detect", "Detect tones", "Detect tones", tone_detect_session_function, "", SAF_MEDIA_TAP);
 	SWITCH_ADD_APP(app_interface, "echo", "Echo", "Perform an echo test against the calling channel", echo_function, "", SAF_NONE);
-	SWITCH_ADD_APP(app_interface, "park", "Park", "Park", park_function, "", SAF_NONE);
+	SWITCH_ADD_APP(app_interface, "park", "Park", "Park", park_function, "", SAF_SUPPORT_NOMEDIA);
 	SWITCH_ADD_APP(app_interface, "park_state", "Park State", "Park State", park_state_function, "", SAF_NONE);
 	SWITCH_ADD_APP(app_interface, "gentones", "Generate Tones", "Generate tones to the channel", gentones_function, "<tgml_script>[|<loops>]", SAF_NONE);
 	SWITCH_ADD_APP(app_interface, "playback", "Playback File", "Playback a file to the channel", playback_function, "<path>", SAF_NONE);

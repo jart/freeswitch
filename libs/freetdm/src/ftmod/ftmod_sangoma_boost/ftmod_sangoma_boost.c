@@ -948,6 +948,7 @@ static void handle_call_answer(ftdm_span_t *span, sangomabc_connection_t *mcon, 
 }
 
 static __inline__ void advance_chan_states(ftdm_channel_t *ftdmchan);
+static __inline__ void stop_loop(ftdm_channel_t *ftdmchan);
 
 /**
  * \brief Handler for call start event
@@ -959,6 +960,10 @@ static void handle_call_start(ftdm_span_t *span, sangomabc_connection_t *mcon, s
 {
 	ftdm_channel_t *ftdmchan = NULL;
 	int hangup_cause = FTDM_CAUSE_CALL_REJECTED;
+	int retry = 1;
+
+tryagain:
+
 	if (!(ftdmchan = find_ftdmchan(span, (sangomabc_short_event_t*)event, 0))) {
 		if ((ftdmchan = find_ftdmchan(span, (sangomabc_short_event_t*)event, 1))) {
 			int r;
@@ -990,6 +995,11 @@ static void handle_call_start(ftdm_span_t *span, sangomabc_connection_t *mcon, s
 				 * the other side to send the call start nack ( or proceed with the call )
 				 * ftdm_set_state_r(ftdmchan, FTDM_CHANNEL_STATE_TERMINATING, r);
 				 */
+			} else if (ftdmchan->state == FTDM_CHANNEL_STATE_IN_LOOP && retry) {
+				retry = 0;
+				stop_loop(ftdmchan);
+				advance_chan_states(ftdmchan);
+				goto tryagain;
 			} else {
 				ftdm_log(FTDM_LOG_ERROR, "s%dc%d: rejecting incoming call in channel state %s\n", 
 						BOOST_EVENT_SPAN(mcon->sigmod, event), BOOST_EVENT_CHAN(mcon->sigmod, event), 
@@ -1092,10 +1102,21 @@ static void handle_call_loop_start(ftdm_span_t *span, sangomabc_connection_t *mc
 	ftdm_channel_command(ftdmchan, FTDM_COMMAND_ENABLE_LOOP, NULL);
 }
 
+static __inline__ void stop_loop(ftdm_channel_t *ftdmchan)
+{
+	ftdm_status_t res = FTDM_FAIL;
+	ftdm_channel_command(ftdmchan, FTDM_COMMAND_DISABLE_LOOP, NULL);
+	/* even when we did not sent a msg we set this flag to avoid sending call stop in the DOWN state handler */
+	ftdm_set_flag(ftdmchan, SFLAG_SENT_FINAL_MSG);
+	ftdm_set_state_r(ftdmchan, FTDM_CHANNEL_STATE_DOWN, res);
+	if (res != FTDM_SUCCESS) {
+		ftdm_log_chan_msg(ftdmchan, FTDM_LOG_CRIT, "yay, could not set the state of the channel from IN_LOOP to DOWN\n");
+	}
+}
+
 static void handle_call_loop_stop(ftdm_span_t *span, sangomabc_connection_t *mcon, sangomabc_short_event_t *event)
 {
 	ftdm_channel_t *ftdmchan;
-	ftdm_status_t res = FTDM_FAIL;
 	if (!(ftdmchan = find_ftdmchan(span, (sangomabc_short_event_t*)event, 1))) {
 		ftdm_log(FTDM_LOG_CRIT, "CANNOT STOP LOOP, INVALID CHAN REQUESTED %d:%d\n", BOOST_EVENT_SPAN(mcon->sigmod, event), BOOST_EVENT_CHAN(mcon->sigmod, event));
 		return;
@@ -1104,13 +1125,7 @@ static void handle_call_loop_stop(ftdm_span_t *span, sangomabc_connection_t *mco
 		ftdm_log(FTDM_LOG_WARNING, "Got stop loop request in a channel that is not in loop, ignoring ...\n");
 		return;
 	}
-	ftdm_channel_command(ftdmchan, FTDM_COMMAND_DISABLE_LOOP, NULL);
-	/* even when we did not sent a msg we set this flag to avoid sending call stop in the DOWN state handler */
-	ftdm_set_flag(ftdmchan, SFLAG_SENT_FINAL_MSG);
-	ftdm_set_state_r(ftdmchan, FTDM_CHANNEL_STATE_DOWN, res);
-	if (res != FTDM_SUCCESS) {
-		ftdm_log(FTDM_LOG_CRIT, "yay, could not set the state of the channel from IN_LOOP to DOWN\n");
-	}
+	stop_loop(ftdmchan);
 }
 
 /**
@@ -1995,7 +2010,7 @@ static void ftdm_cli_span_state_cmd(ftdm_span_t *span, char *state)
 	ftdm_log(FTDM_LOG_CRIT, "Total Channel Cnt %i\n",cnt);
 }
 
-#define FTDM_BOOST_SYNTAX "list sigmods | <sigmod_name> <command>"
+#define FTDM_BOOST_SYNTAX "list sigmods | <sigmod_name> <command> | tracelevel <span> <level>"
 /**
  * \brief API function to kill or debug a sangoma_boost span
  * \param stream API stream handler
@@ -2026,7 +2041,45 @@ static FIO_API_FUNCTION(ftdm_sangoma_boost_api)
 				print_request_ids();
 				goto done;
 			}
-			
+		} else if (!strcasecmp(argv[0], "tracelevel")) {
+			ftdm_status_t status;
+			const char *levelname = NULL;
+			int dbglevel;
+			ftdm_sangoma_boost_data_t *sangoma_boost_data;
+			ftdm_span_t *span;
+
+			if (argc <= 2) {
+				stream->write_function(stream, "-ERR usage: tracelevel <span> <level>\n");
+				goto done;
+			}
+
+			status = ftdm_span_find_by_name(argv[1], &span);
+			if (FTDM_SUCCESS != status) {
+				stream->write_function(stream, "-ERR failed to find span by name %s\n", argv[1]);
+				goto done;
+			}
+
+			if (span->signal_type != FTDM_SIGTYPE_SANGOMABOOST) {
+				stream->write_function(stream, "-ERR span %s is not of boost type\n", argv[1]);
+				goto done;
+			}
+
+			for (dbglevel = 0; (levelname = FTDM_LEVEL_NAMES[dbglevel]); dbglevel++) {
+				if (!strcasecmp(levelname, argv[2])) {
+					break;
+				}
+			}
+
+			if (!levelname) {
+				stream->write_function(stream, "-ERR invalid log level %s\n", argv[2]);
+				goto done;
+			}
+
+			sangoma_boost_data = span->signal_data;
+			sangoma_boost_data->pcon.debuglevel = dbglevel;
+			sangoma_boost_data->mcon.debuglevel = dbglevel;
+			stream->write_function(stream, "+OK span %s has now trace level %s\n", argv[1], FTDM_LEVEL_NAMES[dbglevel]);
+			goto done;
 #ifndef __WINDOWS__
 #if 0
 /* NC: This code crashes the kernel due to fork on heavy fs load */
@@ -2574,7 +2627,7 @@ static FIO_CONFIGURE_SPAN_SIGNALING_FUNCTION(ftdm_sangoma_boost_configure_span)
 
 	if (!sigmod) {
 #ifndef HAVE_NETINET_SCTP_H
-		ftdm_log(FTDM_LOG_CRIT, "No sigmod attribute in span %s, you must either specify a sigmod or re-compile with SCTP available to use socket mode boost!\n");
+		ftdm_log(FTDM_LOG_CRIT, "No sigmod attribute in span %s, you must either specify a sigmod or re-compile with SCTP available to use socket mode boost!\n", span->name);
 		ftdm_set_string(span->last_error, "No sigmod configuration was set and there is no SCTP available!");
 		FAIL_CONFIG_RETURN(FTDM_FAIL);
 #else
@@ -2658,6 +2711,8 @@ static FIO_CONFIGURE_SPAN_SIGNALING_FUNCTION(ftdm_sangoma_boost_configure_span)
 	span->get_span_sig_status = sangoma_boost_get_span_sig_status;
 	span->set_span_sig_status = sangoma_boost_set_span_sig_status;
 	span->state_map = &boost_state_map;
+	sangoma_boost_data->mcon.debuglevel = FTDM_LOG_LEVEL_DEBUG;
+	sangoma_boost_data->pcon.debuglevel = FTDM_LOG_LEVEL_DEBUG;
 	ftdm_clear_flag(span, FTDM_SPAN_SUGGEST_CHAN_ID);
 	ftdm_set_flag(span, FTDM_SPAN_USE_CHAN_QUEUE);
 	if (sigmod_iface) {

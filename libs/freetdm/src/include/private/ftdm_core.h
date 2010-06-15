@@ -109,7 +109,6 @@
 #endif
 #include <assert.h>
 
-#include "freetdm.h"
 #include "ftdm_types.h"
 #include "hashtable.h"
 #include "ftdm_config.h"
@@ -117,6 +116,7 @@
 #include "libteletone.h"
 #include "ftdm_buffer.h"
 #include "ftdm_threadmutex.h"
+#include "ftdm_sched.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -527,6 +527,38 @@ FT_DECLARE(ftdm_status_t) ftdm_channel_done(ftdm_channel_t *ftdmchan);
 FT_DECLARE(ftdm_status_t) ftdm_span_close_all(void);
 FT_DECLARE(ftdm_status_t) ftdm_channel_open_chan(ftdm_channel_t *ftdmchan);
 
+/*! 
+ * \brief Retrieves an event from the span
+ *
+ * \note
+ * 	This function is non-reentrant and not thread-safe. 
+ * 	The event returned may be modified if the function is called again 
+ * 	from a different thread or even the same. It is recommended to
+ * 	handle events from the same span in a single thread.
+ * 	WARNING: this function used to be public ( in freetdm.h )
+ * 	but since is really of no use to users better keep it here
+ *
+ * \param span The span to retrieve the event from
+ * \param event Pointer to store the pointer to the event
+ *
+ * \retval FTDM_SUCCESS success (at least one event available)
+ * \retval FTDM_TIMEOUT Timed out waiting for events
+ * \retval FTDM_FAIL failure
+ */
+FT_DECLARE(ftdm_status_t) ftdm_span_next_event(ftdm_span_t *span, ftdm_event_t **event);
+
+/*! 
+ * \brief Enqueue a DTMF string into the channel
+ *
+ * \param ftdmchan The channel to enqueue the dtmf string to
+ * \param dtmf null-terminated DTMF string
+ *
+ * \retval FTDM_SUCCESS success
+ * \retval FTDM_FAIL failure
+ */
+FT_DECLARE(ftdm_status_t) ftdm_channel_queue_dtmf(ftdm_channel_t *ftdmchan, const char *dtmf);
+
+
 /*!
   \brief Assert condition
 */
@@ -561,6 +593,11 @@ FT_DECLARE(ftdm_status_t) ftdm_channel_open_chan(ftdm_channel_t *ftdmchan);
 
 #define ftdm_channel_lock(chan) ftdm_mutex_lock(chan->mutex)
 #define ftdm_channel_unlock(chan) ftdm_mutex_unlock(chan->mutex)
+#define ftdm_log_chan_ex(fchan, file, func, line, level, format, ...) ftdm_log(file, func, line, level, "s%dc%d " format, fchan->span_id, fchan->chan_id, __VA_ARGS__)
+#define ftdm_log_chan(fchan, level, format, ...) ftdm_log(level, "s%dc%d " format, fchan->span_id, fchan->chan_id, __VA_ARGS__)
+#define ftdm_log_chan_msg(fchan, level, msg) ftdm_log(level, "s%dc%d " msg, fchan->span_id, fchan->chan_id)
+
+FT_DECLARE_DATA extern const char *FTDM_LEVEL_NAMES[9];
 
 static __inline__ void ftdm_abort(void)
 {

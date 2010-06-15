@@ -459,6 +459,7 @@ struct record_helper {
 	switch_file_handle_t *fh;
 	uint32_t packet_len;
 	int min_sec;
+	switch_bool_t hangup_on_error;
 };
 
 static switch_bool_t record_callback(switch_media_bug_t *bug, void *user_data, switch_abc_type_t type)
@@ -502,8 +503,13 @@ static switch_bool_t record_callback(switch_media_bug_t *bug, void *user_data, s
 
 				while (switch_core_media_bug_read(bug, &frame, SWITCH_TRUE) == SWITCH_STATUS_SUCCESS && !switch_test_flag((&frame), SFF_CNG)) {
 					len = (switch_size_t) frame.datalen / 2;
-					if (len)
-						switch_core_file_write(rh->fh, data, &len);
+
+					if (len && switch_core_file_write(rh->fh, data, &len) != SWITCH_STATUS_SUCCESS && rh->hangup_on_error) {
+						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Error writing %s\n", rh->file);
+						switch_channel_hangup(channel, SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER);
+						switch_core_session_reset(session, SWITCH_TRUE, SWITCH_TRUE);
+						return SWITCH_FALSE;
+					}
 				}
 
 
@@ -528,8 +534,12 @@ static switch_bool_t record_callback(switch_media_bug_t *bug, void *user_data, s
 
 			while (switch_core_media_bug_read(bug, &frame, SWITCH_TRUE) == SWITCH_STATUS_SUCCESS && !switch_test_flag((&frame), SFF_CNG)) {
 				len = (switch_size_t) frame.datalen / 2;
-				if (len)
-					switch_core_file_write(rh->fh, data, &len);
+				if (len && switch_core_file_write(rh->fh, data, &len) != SWITCH_STATUS_SUCCESS && rh->hangup_on_error) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Error writing %s\n", rh->file);
+					switch_channel_hangup(channel, SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER);
+					switch_core_session_reset(session, SWITCH_TRUE, SWITCH_TRUE);
+					return SWITCH_FALSE;
+				}
 			}
 
 		}
@@ -934,6 +944,11 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_session(switch_core_session_t 
 	switch_codec_implementation_t read_impl = { 0 };
 	struct record_helper *rh = NULL;
 	int file_flags = SWITCH_FILE_FLAG_WRITE | SWITCH_FILE_DATA_SHORT;
+	switch_bool_t hangup_on_error = SWITCH_FALSE;
+
+	if ((p = switch_channel_get_variable(channel, "RECORD_HANGUP_ON_ERROR"))) {
+		hangup_on_error = switch_true(p);
+	}
 
 	switch_core_session_get_read_impl(session, &read_impl);
 
@@ -1028,8 +1043,10 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_session(switch_core_session_t 
 
 	if (switch_core_file_open(fh, file, channels, read_impl.actual_samples_per_second, file_flags, NULL) != SWITCH_STATUS_SUCCESS) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Error opening %s\n", file);
-		switch_channel_hangup(channel, SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER);
-		switch_core_session_reset(session, SWITCH_TRUE, SWITCH_TRUE);
+		if (hangup_on_error) {
+			switch_channel_hangup(channel, SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER);
+			switch_core_session_reset(session, SWITCH_TRUE, SWITCH_TRUE);
+		}
 		return SWITCH_STATUS_GENERR;
 	}
 
@@ -1087,7 +1104,8 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_session(switch_core_session_t 
 		}
 	}
 
-
+	rh->hangup_on_error = hangup_on_error;
+	
 	if ((status = switch_core_media_bug_add(session, "session_record", file,
 											record_callback, rh, to, flags, &bug)) != SWITCH_STATUS_SUCCESS) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Error adding media bug for file %s\n", file);
@@ -2162,6 +2180,7 @@ typedef struct {
 } dtmf_meta_data_t;
 
 #define SWITCH_META_VAR_KEY "__dtmf_meta"
+#define SWITCH_BLOCK_DTMF_KEY "__dtmf_block"
 
 typedef struct {
 	switch_core_session_t *session;
@@ -2332,6 +2351,44 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_unbind_dtmf_meta_session(switch_core_
 	} else {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_INFO, "UnBound A-Leg: ALL\n");
 		switch_channel_set_private(channel, SWITCH_META_VAR_KEY, NULL);
+	}
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+static switch_status_t block_on_dtmf(switch_core_session_t *session, const switch_dtmf_t *dtmf, switch_dtmf_direction_t direction)
+{
+	switch_channel_t *channel = switch_core_session_get_channel(session);
+	uint8_t enabled = (uint8_t)(intptr_t)switch_channel_get_private(channel, SWITCH_BLOCK_DTMF_KEY);
+
+	if (!enabled || switch_channel_test_flag(channel, CF_INNER_BRIDGE)) {
+		return SWITCH_STATUS_SUCCESS;
+	}
+
+	return SWITCH_STATUS_FALSE;
+}
+
+SWITCH_DECLARE(switch_status_t) switch_ivr_unblock_dtmf_session(switch_core_session_t *session)
+{
+	switch_channel_t *channel = switch_core_session_get_channel(session);
+	uint8_t enabled = (uint8_t)(intptr_t)switch_channel_get_private(channel, SWITCH_BLOCK_DTMF_KEY);
+	
+	if (enabled) {
+		switch_channel_set_private(channel, SWITCH_BLOCK_DTMF_KEY, NULL);
+	}
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+SWITCH_DECLARE(switch_status_t) switch_ivr_block_dtmf_session(switch_core_session_t *session)
+{
+	switch_channel_t *channel = switch_core_session_get_channel(session);
+	uint8_t enabled = (uint8_t)(intptr_t)switch_channel_get_private(channel, SWITCH_BLOCK_DTMF_KEY);
+
+	if (!enabled) {
+		switch_channel_set_private(channel, SWITCH_BLOCK_DTMF_KEY, (void *)(intptr_t)1);
+		switch_core_event_hook_add_send_dtmf(session, block_on_dtmf);
+		switch_core_event_hook_add_recv_dtmf(session, block_on_dtmf);
 	}
 
 	return SWITCH_STATUS_SUCCESS;

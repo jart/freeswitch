@@ -264,7 +264,6 @@ static unsigned wp_open_range(ftdm_span_t *span, unsigned spanno, unsigned start
 				
 				dtmf = "software";
 
-				/* FIXME: Handle Error Condition Check for return code */
 				err = sangoma_tdm_get_hw_coding(chan->sockfd, &tdm_api);
 
 				if (tdm_api.wp_tdm_cmd.hw_tdm_coding) {
@@ -273,14 +272,14 @@ static unsigned wp_open_range(ftdm_span_t *span, unsigned spanno, unsigned start
 					chan->native_codec = chan->effective_codec = FTDM_CODEC_ULAW;
 				}
 
-				//err = sangoma_tdm_get_hw_dtmf(chan->sockfd, &tdm_api);
-				//if (err > 0) {
+				err = sangoma_tdm_get_hw_dtmf(chan->sockfd, &tdm_api);
+				if (err > 0) {
 					err = sangoma_tdm_enable_dtmf_events(chan->sockfd, &tdm_api);
 					if (err == 0) {
 						ftdm_channel_set_feature(chan, FTDM_CHANNEL_FEATURE_DTMF_DETECT);
 						dtmf = "hardware";
 					}
-				//}
+				}
 			}
 
 #ifdef LIBSANGOMA_VERSION
@@ -341,7 +340,7 @@ static unsigned wp_open_range(ftdm_span_t *span, unsigned spanno, unsigned start
 				ftdm_copy_string(chan->chan_number, number, sizeof(chan->chan_number));
 			}
 			configured++;
-			ftdm_log(FTDM_LOG_INFO, "configuring device s%dc%d as FreeTDM device %d:%d fd:%d DTMF: %s\n",
+			ftdm_log_chan(chan, FTDM_LOG_INFO, "configured wanpipe device s%dc%d as FreeTDM channel %d:%d fd:%d DTMF: %s\n",
 				spanno, x, chan->span_id, chan->chan_id, sockfd, dtmf);
 
 		} else {
@@ -613,6 +612,36 @@ static FIO_COMMAND_FUNCTION(wanpipe_command)
              			snprintf(ftdmchan->last_error, sizeof(ftdmchan->last_error), "HWEC Disable Failed");
 				return FTDM_FAIL;
 			}
+		}
+		break;
+	case FTDM_COMMAND_ENABLE_DTMF_DETECT:
+		{
+#ifdef WP_API_FEATURE_DTMF_EVENTS
+			err = sangoma_tdm_enable_dtmf_events(ftdmchan->sockfd, &tdm_api);
+			if (err) {
+				ftdm_log_chan_msg(ftdmchan, FTDM_LOG_WARNING, "Enabling of Sangoma HW DTMF failed\n");
+             			snprintf(ftdmchan->last_error, sizeof(ftdmchan->last_error), "HW DTMF Enable Failed");
+				return FTDM_FAIL;
+			}
+			ftdm_log_chan_msg(ftdmchan, FTDM_LOG_DEBUG, "Enabled DTMF events\n");
+#else
+			return FTDM_NOTIMPL;
+#endif
+		}
+		break;
+	case FTDM_COMMAND_DISABLE_DTMF_DETECT:
+		{
+#ifdef WP_API_FEATURE_DTMF_EVENTS
+			err = sangoma_tdm_disable_dtmf_events(ftdmchan->sockfd, &tdm_api);
+			if (err) {
+				ftdm_log_chan_msg(ftdmchan, FTDM_LOG_WARNING, "Disabling of Sangoma HW DTMF failed\n");
+             			snprintf(ftdmchan->last_error, sizeof(ftdmchan->last_error), "HW DTMF Disable Failed");
+				return FTDM_FAIL;
+			}
+			ftdm_log_chan_msg(ftdmchan, FTDM_LOG_DEBUG, "Disabled DTMF events\n");
+#else
+			return FTDM_NOTIMPL;
+#endif
 		}
 		break;
 	case FTDM_COMMAND_ENABLE_LOOP:
@@ -1024,7 +1053,7 @@ FIO_SPAN_NEXT_EVENT_FUNCTION(wanpipe_next_event)
 				return FTDM_FAIL;
 			}
 			
-			ftdm_log(FTDM_LOG_DEBUG, "read wanpipe event %d\n", tdm_api.wp_tdm_cmd.event.wp_tdm_api_event_type);
+			ftdm_log_chan(span->channels[i], FTDM_LOG_DEBUG, "read wanpipe event %d\n", tdm_api.wp_tdm_cmd.event.wp_tdm_api_event_type);
 			switch(tdm_api.wp_tdm_cmd.event.wp_tdm_api_event_type) {
 
 			case WP_TDMAPI_EVENT_LINK_STATUS:
@@ -1107,7 +1136,7 @@ FIO_SPAN_NEXT_EVENT_FUNCTION(wanpipe_next_event)
 					if (tdm_api.wp_tdm_cmd.event.wp_tdm_api_event_dtmf_type == WAN_EC_TONE_STOP) {
 						ftdm_clear_flag_locked(ftdmchan, FTDM_CHANNEL_MUTE);
 						if (ftdm_test_flag(ftdmchan, FTDM_CHANNEL_INUSE)) {
-							ftdm_log(FTDM_LOG_DEBUG, "Queuing wanpipe DTMF: %c\n", tmp_dtmf[0]);
+							ftdm_log_chan(ftdmchan, FTDM_LOG_DEBUG, "Queuing wanpipe DTMF: %c\n", tmp_dtmf[0]);
 							ftdm_channel_queue_dtmf(ftdmchan, tmp_dtmf);
 						}
 					} 
@@ -1115,13 +1144,13 @@ FIO_SPAN_NEXT_EVENT_FUNCTION(wanpipe_next_event)
 				break;
 			case WP_TDMAPI_EVENT_ALARM:
 				{
-					ftdm_log(FTDM_LOG_DEBUG, "Got wanpipe alarms %d\n", tdm_api.wp_tdm_cmd.event.wp_api_event_alarm);
+					ftdm_log_chan(ftdmchan, FTDM_LOG_DEBUG, "Got wanpipe alarms %d\n", tdm_api.wp_tdm_cmd.event.wp_api_event_alarm);
 					event_id = FTDM_OOB_ALARM_TRAP;
 				}
 				break;
 			default:
 				{
-					ftdm_log(FTDM_LOG_WARNING, "Unhandled wanpipe event %d\n", tdm_api.wp_tdm_cmd.event.wp_tdm_api_event_type);
+					ftdm_log_chan(ftdmchan, FTDM_LOG_WARNING, "Unhandled wanpipe event %d\n", tdm_api.wp_tdm_cmd.event.wp_tdm_api_event_type);
 					event_id = FTDM_OOB_INVALID;
 				}
 				break;

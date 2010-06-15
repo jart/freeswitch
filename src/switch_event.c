@@ -119,11 +119,14 @@ static char *EVENT_NAMES[] = {
 	"CHANNEL_CREATE",
 	"CHANNEL_DESTROY",
 	"CHANNEL_STATE",
+	"CHANNEL_CALLSTATE",
 	"CHANNEL_ANSWER",
 	"CHANNEL_HANGUP",
 	"CHANNEL_HANGUP_COMPLETE",
 	"CHANNEL_EXECUTE",
 	"CHANNEL_EXECUTE_COMPLETE",
+	"CHANNEL_HOLD",
+	"CHANNEL_UNHOLD",
 	"CHANNEL_BRIDGE",
 	"CHANNEL_UNBRIDGE",
 	"CHANNEL_PROGRESS",
@@ -578,6 +581,8 @@ SWITCH_DECLARE(switch_status_t) switch_event_init(switch_memory_pool_t *pool)
 {
 	switch_threadattr_t *thd_attr;;
 
+	switch_assert(switch_arraylen(EVENT_NAMES)  == SWITCH_EVENT_ALL + 1);
+
 	switch_assert(pool != NULL);
 	THRUNTIME_POOL = RUNTIME_POOL = pool;
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Activate Eventing Engine.\n");
@@ -650,7 +655,7 @@ SWITCH_DECLARE(switch_status_t) switch_event_create_subclass_detailed(const char
 
 	memset(*event, 0, sizeof(switch_event_t));
 
-	if (event_id == SWITCH_EVENT_REQUEST_PARAMS) {
+	if (event_id == SWITCH_EVENT_REQUEST_PARAMS || event_id == SWITCH_EVENT_CHANNEL_DATA) {
 		(*event)->flags |= EF_UNIQ_HEADERS;
 	}
 
@@ -772,7 +777,7 @@ switch_status_t switch_event_base_add_header(switch_event_t *event, switch_stack
 	header->value = data;
 	header->hash = switch_ci_hashfunc_default(header->name, &hlen);
 
-	if (stack == SWITCH_STACK_TOP) {
+	if ((stack & SWITCH_STACK_TOP)) {
 		header->next = event->headers;
 		event->headers = header;
 		if (!event->last_header) {
@@ -823,7 +828,7 @@ SWITCH_DECLARE(switch_status_t) switch_event_set_subclass_name(switch_event_t *e
 SWITCH_DECLARE(switch_status_t) switch_event_add_header_string(switch_event_t *event, switch_stack_t stack, const char *header_name, const char *data)
 {
 	if (data) {
-		return switch_event_base_add_header(event, stack, header_name, DUP(data));
+		return switch_event_base_add_header(event, stack, header_name, (stack & SWITCH_STACK_NODUP) ? (char *)data : DUP(data));
 	}
 	return SWITCH_STATUS_GENERR;
 }
@@ -887,6 +892,17 @@ SWITCH_DECLARE(void) switch_event_destroy(switch_event_t **event)
 }
 
 
+SWITCH_DECLARE(void) switch_event_merge(switch_event_t *event, switch_event_t *tomerge)
+{
+	switch_event_header_t *hp;
+	
+	switch_assert(tomerge && event);
+
+	for (hp = tomerge->headers; hp; hp = hp->next) {
+		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, hp->name, hp->value);
+	}
+}
+
 SWITCH_DECLARE(switch_status_t) switch_event_dup(switch_event_t **event, switch_event_t *todup)
 {
 	switch_event_header_t *hp;
@@ -898,7 +914,7 @@ SWITCH_DECLARE(switch_status_t) switch_event_dup(switch_event_t **event, switch_
 	(*event)->event_id = todup->event_id;
 	(*event)->event_user_data = todup->event_user_data;
 	(*event)->bind_user_data = todup->bind_user_data;
-
+	(*event)->flags = todup->flags;
 	for (hp = todup->headers; hp; hp = hp->next) {
 		if (todup->subclass_name && !strcmp(hp->name, "Event-Subclass")) {
 			continue;

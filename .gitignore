@@ -5,6 +5,8 @@
 *.a
 *.la
 *.loT
+*.orig
+*.rej
 .libs
 .deps
 .\#*
@@ -27,7 +29,11 @@
 *.manifest
 *.dep
 *.dll
-/BuildLog.htm
+*.sbr
+*.ilk
+*.bsc
+*.pch
+core.*
 /Path
 /w32/Library/lastversion
 /w32/Library/tmpVersion.Bat
@@ -42,6 +48,7 @@
 /Makefile.in
 /NEWS
 /README
+/TAGS
 aclocal.m4
 autom4te.cache
 /build/Makefile

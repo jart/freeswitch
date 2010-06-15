@@ -26,7 +26,7 @@
  * Anthony Minessale II <anthm@freeswitch.org>
  *
  *
- * mod_mp4v.c -- MP4V Signed Linear Codec
+ * mod_mp4v.c -- MP4V Video Codec
  *
  */
 
@@ -82,7 +82,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_mp4v_load)
 	switch_codec_interface_t *codec_interface;
 	/* connect my internal structure to the blank pointer passed to me */
 	*module_interface = switch_loadable_module_create_module_interface(pool, modname);
-	SWITCH_ADD_CODEC(codec_interface, "H.264 Video (passthru)");
+	SWITCH_ADD_CODEC(codec_interface, "MP4V Video (passthru)");
 	switch_core_codec_add_implementation(pool, codec_interface,
 										 SWITCH_CODEC_TYPE_VIDEO, 99, "MP4V-ES", NULL, 90000, 90000, 0,
 										 0, 0, 0, 0, 1, 1, switch_mp4v_init, switch_mp4v_encode, switch_mp4v_decode, switch_mp4v_destroy);

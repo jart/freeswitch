@@ -161,22 +161,6 @@ typedef enum {
 	FTDM_BOTTOM_UP
 } ftdm_direction_t;
 
-/*! \brief Event types */
-typedef enum {
-	FTDM_EVENT_NONE,
-	FTDM_EVENT_DTMF,
-	FTDM_EVENT_OOB,
-	FTDM_EVENT_COUNT
-} ftdm_event_type_t;
-
-/*! \brief Generic event data type */
-struct ftdm_event {
-	ftdm_event_type_t e_type;
-	uint32_t enum_id;
-	ftdm_channel_t *channel;
-	void *data;
-};
-
 /*! \brief I/O channel type */
 typedef enum {
 	FTDM_CHAN_TYPE_B, /*!< Bearer channel */
@@ -281,23 +265,22 @@ typedef enum {
 typedef enum {
 	FTDM_SIGEVENT_START, /*!< Incoming call (ie: incoming SETUP msg or Ring) */
 	FTDM_SIGEVENT_STOP, /*!< Hangup */
-	FTDM_SIGEVENT_ANSWER, /*!< Outgoing call has been answered */
 	FTDM_SIGEVENT_UP, /*!< Outgoing call has been answered */
 	FTDM_SIGEVENT_FLASH, /*< Flash event  (typically on-hook/off-hook for analog devices) */
 	FTDM_SIGEVENT_PROGRESS, /*!< Outgoing call is making progress */
 	FTDM_SIGEVENT_PROGRESS_MEDIA, /*!< Outgoing call is making progress and there is media available */
-	FTDM_SIGEVENT_TONE_DETECTED, /*!< Inband tone detected */
 	FTDM_SIGEVENT_ALARM_TRAP, /*!< Hardware alarm ON */
 	FTDM_SIGEVENT_ALARM_CLEAR, /*!< Hardware alarm OFF */
 	FTDM_SIGEVENT_COLLECTED_DIGIT, /*!< Digit collected (in signalings where digits are collected one by one) */
 	FTDM_SIGEVENT_ADD_CALL, /*!< New call should be added to the channel */
 	FTDM_SIGEVENT_RESTART, /*!< Restart has been requested. Typically you hangup your call resources here */
 	FTDM_SIGEVENT_SIGSTATUS_CHANGED, /*!< Signaling protocol status changed (ie: D-chan up), see new status in raw_data ftdm_sigmsg_t member */
+	FTDM_SIGEVENT_COLLISION, /*!< Outgoing call was dropped because an incoming call arrived at the same time */
 	FTDM_SIGEVENT_INVALID
 } ftdm_signal_event_t;
-#define SIGNAL_STRINGS "START", "STOP", "ANSWER", "UP", "FLASH", "PROGRESS", \
-		"PROGRESS_MEDIA", "TONE_DETECTED", "ALARM_TRAP", "ALARM_CLEAR", \
-		"COLLECTED_DIGIT", "ADD_CALL", "RESTART", "SIGSTATUS_CHANGED", "INVALID"
+#define SIGNAL_STRINGS "START", "STOP", "UP", "FLASH", "PROGRESS", \
+		"PROGRESS_MEDIA", "ALARM_TRAP", "ALARM_CLEAR", \
+		"COLLECTED_DIGIT", "ADD_CALL", "RESTART", "SIGSTATUS_CHANGED", "COLLISION", "INVALID"
 
 /*! \brief Move from string to ftdm_signal_event_t and viceversa */
 FTDM_STR2ENUM_P(ftdm_str2ftdm_signal_event, ftdm_signal_event2str, ftdm_signal_event_t)
@@ -376,6 +359,7 @@ typedef enum {
 typedef struct ftdm_conf_parameter {
 	const char *var;
 	const char *val;
+	void *ptr;
 } ftdm_conf_parameter_t;
 
 /*! \brief Channel commands that can be executed through ftdm_channel_command() */
@@ -404,6 +388,7 @@ typedef enum {
 	FTDM_COMMAND_DISABLE_PROGRESS_DETECT,
 	FTDM_COMMAND_TRACE_INPUT,
 	FTDM_COMMAND_TRACE_OUTPUT,
+	FTDM_COMMAND_TRACE_END_ALL,
 	FTDM_COMMAND_ENABLE_CALLERID_DETECT,
 	FTDM_COMMAND_DISABLE_CALLERID_DETECT,
 	FTDM_COMMAND_ENABLE_ECHOCANCEL,
@@ -439,7 +424,6 @@ struct ftdm_memory_handler {
 	ftdm_realloc_func_t realloc;
 	ftdm_free_func_t free;
 };
-
 
 /*! \brief FreeTDM I/O layer interface argument macros 
  * You don't need these unless your implementing an I/O interface module (most users don't) */
@@ -787,26 +771,16 @@ FT_DECLARE(ftdm_status_t) ftdm_channel_get_alarms(ftdm_channel_t *ftdmchan, ftdm
 FT_DECLARE(ftdm_chan_type_t) ftdm_channel_get_type(const ftdm_channel_t *ftdmchan);
 
 /*! 
- * \brief Get the channel type
+ * \brief Dequeue DTMF from the given channel
+ * \note To transmit DTMF use ftdm_channel_command with command FTDM_COMMAND_SEND_DTMF
  *
- * \param ftdmchan The channel to get the type from
+ * \param ftdmchan The channel to dequeue DTMF from
  * \param dtmf DTMF buffer to store the dtmf (you are responsible for its allocation and deallocation)
- * \param len The size of the DTMF buffer
+ * \param len The size of the provided DTMF buffer
  *
- * \retval channel type (FXO, FXS, B-channel, D-channel, etc)
+ * \retval The size of the dequeued DTMF (it might be zero if there is no DTMF in the queue)
  */
 FT_DECLARE(ftdm_size_t) ftdm_channel_dequeue_dtmf(ftdm_channel_t *ftdmchan, char *dtmf, ftdm_size_t len);
-
-/*! 
- * \brief Enqueue a DTMF string into the channel
- *
- * \param ftdmchan The channel to enqueue the dtmf string to
- * \param dtmf null-terminated DTMF string
- *
- * \retval FTDM_SUCCESS success
- * \retval FTDM_FAIL failure
- */
-FT_DECLARE(ftdm_status_t) ftdm_channel_queue_dtmf(ftdm_channel_t *ftdmchan, const char *dtmf);
 
 /*! 
  * \brief Flush the DTMF queue
@@ -826,24 +800,6 @@ FT_DECLARE(void) ftdm_channel_flush_dtmf(ftdm_channel_t *ftdmchan);
  * \retval FTDM_FAIL failure
  */
 FT_DECLARE(ftdm_status_t) ftdm_span_poll_event(ftdm_span_t *span, uint32_t ms);
-
-/*! 
- * \brief Retrieves an event from the span
- *
- * \note
- * 	This function is non-reentrant and not thread-safe. 
- * 	The event returned may be modified if the function is called again 
- * 	from a different thread or even the same. It is recommended to
- * 	handle events from the same span in a single thread.
- *
- * \param span The span to retrieve the event from
- * \param event Pointer to store the pointer to the event
- *
- * \retval FTDM_SUCCESS success (at least one event available)
- * \retval FTDM_TIMEOUT Timed out waiting for events
- * \retval FTDM_FAIL failure
- */
-FT_DECLARE(ftdm_status_t) ftdm_span_next_event(ftdm_span_t *span, ftdm_event_t **event);
 
 /*! 
  * \brief Find a span by its id
@@ -894,9 +850,6 @@ FT_DECLARE(ftdm_status_t) ftdm_span_create(const char *iotype, const char *name,
  */
 FT_DECLARE(ftdm_status_t) ftdm_span_add_channel(ftdm_span_t *span, ftdm_socket_t sockfd, ftdm_chan_type_t type, ftdm_channel_t **chan);
 
-/*! \brief Set an event callback for the span */
-FT_DECLARE(ftdm_status_t) ftdm_span_set_event_callback(ftdm_span_t *span, fio_event_cb_t event_callback);
-
 /*! \brief Add the channel to a hunt group */
 FT_DECLARE(ftdm_status_t) ftdm_channel_add_to_group(const char* name, ftdm_channel_t* ftdmchan);
 
@@ -911,9 +864,6 @@ FT_DECLARE(ftdm_status_t) ftdm_group_find_by_name(const char *name, ftdm_group_t
 
 /*! \brief Create a group with the given name */
 FT_DECLARE(ftdm_status_t) ftdm_group_create(ftdm_group_t **group, const char *name);
-
-/*! \brief Set the event callback for the channel */
-FT_DECLARE(ftdm_status_t) ftdm_channel_set_event_callback(ftdm_channel_t *ftdmchan, fio_event_cb_t event_callback);
 
 /*! \brief Get the number of channels in use on a span */
 FT_DECLARE(ftdm_status_t) ftdm_span_channel_use_count(ftdm_span_t *span, uint32_t *count);
@@ -985,7 +935,7 @@ FT_DECLARE(ftdm_status_t) ftdm_channel_open_by_group(uint32_t group_id, ftdm_dir
 FT_DECLARE(ftdm_status_t) ftdm_channel_close(ftdm_channel_t **ftdmchan);
 
 /*! 
- * \brief Execute a command in a channel
+ * \brief Execute a command in a channel (same semantics as the ioctl() unix system call)
  *
  * \param ftdmchan The channel to execute the command
  * \param command The command to execute
@@ -1127,6 +1077,9 @@ FT_DECLARE(ftdm_status_t) ftdm_span_start(ftdm_span_t *span);
 
 /*! 
  * \brief Stop the span signaling (must call ftdm_span_start first)
+ * \note certain signalings (boost signaling) does not support granular span start/stop
+ * so it is recommended to always configure all spans and then starting them all and finally
+ * stop them all (or call ftdm_global_destroy which takes care of stopping and destroying the spans at once).
  *
  * \param span The span to stop
  *

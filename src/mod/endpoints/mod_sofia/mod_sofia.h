@@ -45,7 +45,7 @@
 #define HAVE_APR
 #include <switch.h>
 #include <switch_version.h>
-#define SOFIA_NAT_SESSION_TIMEOUT 20
+#define SOFIA_NAT_SESSION_TIMEOUT 1800
 #define SOFIA_MAX_ACL 100
 #ifdef _MSC_VER
 #define HAVE_FUNCTION 1
@@ -88,6 +88,8 @@ typedef struct private_object private_object_t;
 #define SOFIA_REPLACES_HEADER "_sofia_replaces_"
 #define SOFIA_USER_AGENT "FreeSWITCH-mod_sofia/" SWITCH_VERSION_MAJOR "." SWITCH_VERSION_MINOR "." SWITCH_VERSION_MICRO "-" SWITCH_VERSION_REVISION
 #define SOFIA_CHAT_PROTO "sip"
+#define SOFIA_MULTIPART_PREFIX "sip_mp_"
+#define SOFIA_MULTIPART_PREFIX_T "~sip_mp_"
 #define SOFIA_SIP_HEADER_PREFIX "sip_h_"
 #define SOFIA_SIP_RESPONSE_HEADER_PREFIX "sip_rh_"
 #define SOFIA_SIP_BYE_HEADER_PREFIX "sip_bye_h_"
@@ -209,6 +211,7 @@ typedef enum {
 	PFLAG_TRACK_CALLS,
 	PFLAG_DESTROY,
 	PFLAG_EXTENDED_INFO_PARSING,
+	PFLAG_T38_PASSTHRU,
 	/* No new flags below this line */
 	PFLAG_MAX
 } PFLAGS;
@@ -265,6 +268,7 @@ typedef enum {
 	TFLAG_TRACKED,
 	TFLAG_RECOVERING,
 	TFLAG_RECOVERING_BRIDGE,
+	TFLAG_T38_PASSTHRU,
 	/* No new flags below this line */
 	TFLAG_MAX
 } TFLAGS;
@@ -308,6 +312,12 @@ typedef enum {
 	/* No new flags below this line */
 	REG_FLAG_MAX
 } reg_flags_t;
+
+typedef enum {
+	CID_TYPE_RPID,
+	CID_TYPE_PID,
+	CID_TYPE_NONE
+} sofia_cid_type_t;
 
 typedef enum {
 	REG_STATE_UNREGED,
@@ -412,6 +422,7 @@ struct sofia_gateway {
 	struct sofia_gateway *next;
 	sofia_gateway_subscription_t *subscriptions;
 	int distinct_to;
+	sofia_cid_type_t cid_type;
 };
 
 typedef enum {
@@ -426,11 +437,7 @@ typedef enum {
 	MEDIA_OPT_BYPASS_AFTER_ATT_XFER = (1 << 1)
 } sofia_media_options_t;
 
-typedef enum {
-	CID_TYPE_RPID,
-	CID_TYPE_PID,
-	CID_TYPE_NONE
-} sofia_cid_type_t;
+#define MAX_RTPIP 50
 
 struct sofia_profile {
 	int debug;
@@ -441,7 +448,9 @@ struct sofia_profile {
 	char *context;
 	char *shutdown_type;
 	char *extrtpip;
-	char *rtpip;
+	char *rtpip[MAX_RTPIP];
+	uint32_t rtpip_index;
+	uint32_t rtpip_next;
 	char *sipip;
 	char *extsipip;
 	char *username;
@@ -622,6 +631,7 @@ struct private_object {
 	char *x_freeswitch_support_local;
 	char *last_sent_callee_id_name;
 	char *last_sent_callee_id_number;
+	char *rtpip;
 	switch_port_t stun_port;
 	uint32_t stun_flags;
 	unsigned long rm_rate;
@@ -741,7 +751,7 @@ switch_status_t sofia_glue_tech_choose_port(private_object_t *tech_pvt, int forc
 
 switch_status_t sofia_glue_do_invite(switch_core_session_t *session);
 
-uint8_t sofia_glue_negotiate_sdp(switch_core_session_t *session, sdp_session_t *sdp);
+uint8_t sofia_glue_negotiate_sdp(switch_core_session_t *session, const char *r_sdp);
 
 void sofia_presence_establish_presence(sofia_profile_t *profile);
 
@@ -820,7 +830,6 @@ switch_status_t sofia_glue_ext_address_lookup(sofia_profile_t *profile, private_
 											  const char *sourceip, switch_memory_pool_t *pool);
 
 void sofia_glue_pass_sdp(private_object_t *tech_pvt, char *sdp);
-int sofia_glue_get_user_host(char *in, char **user, char **host);
 switch_call_cause_t sofia_glue_sip_cause_to_freeswitch(int status);
 void sofia_glue_do_xfer_invite(switch_core_session_t *session);
 uint8_t sofia_reg_handle_register(nua_t *nua, sofia_profile_t *profile, nua_handle_t *nh, sip_t const *sip,
@@ -985,5 +994,6 @@ void sofia_profile_destroy(sofia_profile_t *profile);
 switch_status_t sip_dig_function(_In_opt_z_ const char *cmd, _In_opt_ switch_core_session_t *session, _In_ switch_stream_handle_t *stream);
 const char *sofia_gateway_status_name(sofia_gateway_status_t status);
 void sofia_reg_fire_custom_gateway_state_event(sofia_gateway_t *gateway, int status, const char *phrase);
-
-
+void sofia_glue_copy_t38_options(switch_t38_options_t *t38_options, switch_core_session_t *session);
+switch_t38_options_t *sofia_glue_extract_t38_options(switch_core_session_t *session, const char *r_sdp);
+char *sofia_glue_get_multipart(switch_core_session_t *session, const char *prefix, const char *sdp, char **mp_type);

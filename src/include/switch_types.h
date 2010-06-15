@@ -230,6 +230,7 @@ typedef enum {
 typedef uint32_t switch_port_flag_t;
 
 typedef enum {
+	ED_NONE = 0,
 	ED_MUX_READ = (1 << 0),
 	ED_MUX_WRITE = (1 << 1),
 	ED_DTMF = (1 << 2)
@@ -553,7 +554,7 @@ typedef enum {
 	 */
 
 
-	RTP_BUG_SONUS_SEND_INVALID_TIMESTAMP_2833 = (1 << 1)
+	RTP_BUG_SONUS_SEND_INVALID_TIMESTAMP_2833 = (1 << 1),
 		/*
 		   Sonus wrongly expects that, when sending a multi-packet 2833 DTMF event, The sender
 		   should increment the RTP timestamp in each packet when, in reality, the sender should
@@ -572,6 +573,19 @@ typedef enum {
 
 		   This flag will cause each packet to have a new timestamp.
 		 */
+
+
+	RTP_BUG_IGNORE_MARK_BIT = (1 << 2)
+
+	/*
+	  A Huawei SBC has been discovered that sends the mark bit on every single RTP packet.
+	  Since this causes the RTP stack to flush it's buffers, it horribly messes up the timing on the channel.
+
+	  This flag will do nothing when an inbound packet contains the mark bit.
+
+	 */
+
+
 } switch_rtp_bug_flag_t;
 
 #ifdef _MSC_VER
@@ -753,8 +767,9 @@ SWITCH_STACK_TOP	- Stack on the top
 </pre>
  */
 typedef enum {
-	SWITCH_STACK_BOTTOM,
-	SWITCH_STACK_TOP
+	SWITCH_STACK_BOTTOM = (1 << 0),
+	SWITCH_STACK_TOP = (1 << 1),
+	SWITCH_STACK_NODUP = (1 << 2)
 } switch_stack_t;
 
 /*!
@@ -872,6 +887,16 @@ typedef uint32_t switch_core_session_message_flag_t;
 #define SWITCH_CHANNEL_SESSION_LOG(x) SWITCH_CHANNEL_ID_SESSION, __FILE__, __SWITCH_FUNC__, __LINE__, (const char*)(x)
 #define SWITCH_CHANNEL_CHANNEL_LOG(x) SWITCH_CHANNEL_ID_SESSION, __FILE__, __SWITCH_FUNC__, __LINE__, (const char*)switch_channel_get_session(x)
 #define SWITCH_CHANNEL_UUID_LOG(x) SWITCH_CHANNEL_ID_LOG, __FILE__, __SWITCH_FUNC__, __LINE__, (x)
+
+typedef enum {
+	CCS_DOWN,
+	CCS_DIALING,
+	CCS_RINGING,
+	CCS_EARLY,
+	CCS_ACTIVE,
+	CCS_HELD,
+	CCS_HANGUP
+} switch_channel_callstate_t;
 
 /*!
   \enum switch_channel_state_t
@@ -1004,6 +1029,7 @@ typedef enum {
 	CF_BROADCAST_DROP_MEDIA,
 	CF_EARLY_HANGUP,
 	CF_MEDIA_SET,
+	CF_CONSUME_ON_ORIGINATE,
 	/* WARNING: DO NOT ADD ANY FLAGS BELOW THIS LINE */
 	CF_FLAG_MAX
 } switch_channel_flag_t;
@@ -1329,11 +1355,14 @@ typedef enum {
 	SWITCH_EVENT_CHANNEL_CREATE,
 	SWITCH_EVENT_CHANNEL_DESTROY,
 	SWITCH_EVENT_CHANNEL_STATE,
+	SWITCH_EVENT_CHANNEL_CALLSTATE,
 	SWITCH_EVENT_CHANNEL_ANSWER,
 	SWITCH_EVENT_CHANNEL_HANGUP,
 	SWITCH_EVENT_CHANNEL_HANGUP_COMPLETE,
 	SWITCH_EVENT_CHANNEL_EXECUTE,
 	SWITCH_EVENT_CHANNEL_EXECUTE_COMPLETE,
+	SWITCH_EVENT_CHANNEL_HOLD,
+	SWITCH_EVENT_CHANNEL_UNHOLD,
 	SWITCH_EVENT_CHANNEL_BRIDGE,
 	SWITCH_EVENT_CHANNEL_UNBRIDGE,
 	SWITCH_EVENT_CHANNEL_PROGRESS,

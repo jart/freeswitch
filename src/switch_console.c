@@ -562,7 +562,7 @@ static int uuid_callback(void *pArg, int argc, char **argv, char **columnNames)
 
 }
 
-SWITCH_DECLARE(switch_status_t) switch_console_list_uuid(const char *line, const char *cursor, switch_console_callback_match_t **matches)
+SWITCH_DECLARE_NONSTD(switch_status_t) switch_console_list_uuid(const char *line, const char *cursor, switch_console_callback_match_t **matches)
 {
 	char *sql;
 	struct match_helper h = { 0 };
@@ -1436,7 +1436,7 @@ SWITCH_DECLARE(void) switch_console_loop(void)
 #ifndef _MSC_VER
 	int x = 0;
 #else
-	char keys[80];
+	char keys[CMD_BUFLEN];
 #endif
 
 	/* Load/Init the config first */

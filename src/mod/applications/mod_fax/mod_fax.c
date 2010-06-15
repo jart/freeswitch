@@ -33,6 +33,13 @@
  */
 
 #include <switch.h>
+#ifdef WIN32
+#define FAX_INVALID_SOCKET INVALID_HANDLE_VALUE
+typedef HANDLE zap_socket_t;
+#else
+#define FAX_INVALID_SOCKET -1
+typedef int zap_socket_t;
+#endif
 
 #define SPANDSP_EXPOSE_INTERNAL_STRUCTURES
 #include <spandsp.h>
@@ -685,7 +692,7 @@ static t38_mode_t configure_t38(pvt_t *pvt)
     switch_t38_options_t *t38_options = switch_channel_get_private(channel, "t38_options");
     int method = 2;
 
-    if (!t38_options) {
+    if (!t38_options || !pvt || !pvt->t38_core) {
         pvt->t38_mode = T38_MODE_REFUSED;
         return pvt->t38_mode;
     }
@@ -1453,6 +1460,11 @@ static switch_status_t t38_gateway_on_soft_execute(switch_core_session_t *sessio
     pvt = pvt_init(session, FUNCTION_GW);
     request_t38(pvt);
 
+    msg.message_id = SWITCH_MESSAGE_INDICATE_BRIDGE;
+    msg.from = __FILE__;
+    msg.string_arg = peer_uuid;
+    switch_core_session_receive_message(session, &msg);
+
     while (switch_channel_ready(channel) && switch_channel_up(other_channel) && !switch_channel_test_app_flag(channel, CF_APP_T38)) {
 		status = switch_core_session_read_frame(session, &read_frame, SWITCH_IO_FLAG_NONE, 0);
 
@@ -1481,6 +1493,7 @@ static switch_status_t t38_gateway_on_soft_execute(switch_core_session_t *sessio
     }
 
     if (pvt->t38_mode == T38_MODE_REQUESTED) {
+        spanfax_init(pvt, T38_GATEWAY_MODE);
         configure_t38(pvt);
         pvt->t38_mode = T38_MODE_NEGOTIATED;
     } else {
@@ -1489,9 +1502,9 @@ static switch_status_t t38_gateway_on_soft_execute(switch_core_session_t *sessio
             switch_channel_hangup(channel, SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER);
             goto end_unlock;
         }
-    }
 
-    spanfax_init(pvt, T38_GATEWAY_MODE);
+        spanfax_init(pvt, T38_GATEWAY_MODE);
+    }
 
     /* This will change the rtp stack to udptl mode */
     msg.from = __FILE__;
@@ -1524,6 +1537,12 @@ static switch_status_t t38_gateway_on_soft_execute(switch_core_session_t *sessio
 
  end_unlock:
 
+
+    msg.message_id = SWITCH_MESSAGE_INDICATE_UNBRIDGE;
+    msg.from = __FILE__;
+    msg.string_arg = peer_uuid;
+    switch_core_session_receive_message(session, &msg);
+
     switch_channel_hangup(other_channel, SWITCH_CAUSE_NORMAL_CLEARING);
     switch_core_session_rwunlock(other_session);
 
@@ -1550,9 +1569,14 @@ static switch_status_t t38_gateway_on_consume_media(switch_core_session_t *sessi
 	int16_t *buf = NULL;
     switch_status_t status;
     switch_size_t tx;
+    const char *t38_trace = switch_channel_get_variable(channel, "t38_trace");
+    char *trace_read, *trace_write;
+    zap_socket_t read_fd = FAX_INVALID_SOCKET, write_fd = FAX_INVALID_SOCKET;
+    switch_core_session_message_t msg = { 0 };
+    switch_event_t *event;
 
 	switch_core_session_get_read_impl(session, &read_impl);
-
+    
     buf = switch_core_session_alloc(session, SWITCH_RECOMMENDED_BUFFER_SIZE);
 
     if (!(other_session = switch_core_session_locate(peer_uuid))) {
@@ -1562,6 +1586,16 @@ static switch_status_t t38_gateway_on_consume_media(switch_core_session_t *sessi
 
     other_channel = switch_core_session_get_channel(other_session);
     
+    msg.message_id = SWITCH_MESSAGE_INDICATE_BRIDGE;
+    msg.from = __FILE__;
+    msg.string_arg = peer_uuid;
+    switch_core_session_receive_message(session, &msg);
+
+	if (switch_event_create(&event, SWITCH_EVENT_CHANNEL_BRIDGE) == SWITCH_STATUS_SUCCESS) {
+		switch_channel_event_set_data(channel, event);
+		switch_event_fire(&event);
+	}
+
     while (switch_channel_ready(channel) && switch_channel_up(other_channel) && !switch_channel_test_app_flag(channel, CF_APP_T38)) {
 		status = switch_core_session_read_frame(session, &read_frame, SWITCH_IO_FLAG_NONE, 0);
         
@@ -1626,7 +1660,29 @@ static switch_status_t t38_gateway_on_consume_media(switch_core_session_t *sessi
 		goto end_unlock;
 	}
 
-	switch_ivr_sleep(session, 250, SWITCH_TRUE, NULL);
+	switch_ivr_sleep(session, 0, SWITCH_TRUE, NULL);
+
+    if (switch_true(t38_trace)) {
+        trace_read = switch_core_session_sprintf(session, "%s%s%s_read.raw", SWITCH_GLOBAL_dirs.temp_dir, 
+                                                 SWITCH_PATH_SEPARATOR, switch_core_session_get_uuid(session));
+
+        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Tracing inbound audio to %s\n", trace_read);
+        switch_channel_set_variable(channel, "t38_trace_read", trace_read);
+
+        trace_write = switch_core_session_sprintf(session, "%s%s%s_write.raw", SWITCH_GLOBAL_dirs.temp_dir, 
+                                                  SWITCH_PATH_SEPARATOR, switch_core_session_get_uuid(session));
+        
+        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Tracing outbound audio to %s\n", trace_write);
+        switch_channel_set_variable(channel, "t38_trace_read", trace_write);
+        
+
+        if ((write_fd = open(trace_read, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) != FAX_INVALID_SOCKET) {
+            if ((read_fd = open(trace_write, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) == FAX_INVALID_SOCKET) {
+                close(write_fd);
+                write_fd = FAX_INVALID_SOCKET;
+            }
+        }
+    }
 
 	while (switch_channel_ready(channel) && switch_channel_up(other_channel)) {
 		status = switch_core_session_read_frame(session, &read_frame, SWITCH_IO_FLAG_NONE, 0);
@@ -1639,7 +1695,15 @@ static switch_status_t t38_gateway_on_consume_media(switch_core_session_t *sessi
 
 		/* Skip CNG frames (auto-generated by FreeSWITCH, usually) */
 		if (!switch_test_flag(read_frame, SFF_CNG)) {
-			if (t38_gateway_rx(pvt->t38_gateway_state, (int16_t *) read_frame->data, read_frame->samples)) {
+
+            if (read_fd != FAX_INVALID_SOCKET) {
+                int w = write(read_fd, read_frame->data, read_frame->datalen);
+                if (w <= 0) {
+                    close(read_fd);
+                    read_fd = FAX_INVALID_SOCKET;
+                }
+            }
+            if (t38_gateway_rx(pvt->t38_gateway_state, (int16_t *) read_frame->data, read_frame->samples)) {
 				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "fax_rx reported an error\n");
 				goto end_unlock;
 			}
@@ -1659,12 +1723,42 @@ static switch_status_t t38_gateway_on_consume_media(switch_core_session_t *sessi
 			write_frame.samples = tx;
 		}
 
+        if (write_fd != FAX_INVALID_SOCKET) {
+            int w = write(write_fd, write_frame.data, write_frame.datalen);
+            if (w <= 0) {
+                close(write_fd);
+                write_fd = FAX_INVALID_SOCKET;
+            }
+        }
+
 		if (switch_core_session_write_frame(session, &write_frame, SWITCH_IO_FLAG_NONE, 0) != SWITCH_STATUS_SUCCESS) {
 			goto end_unlock;
 		}
     }
 
  end_unlock:
+
+    msg.message_id = SWITCH_MESSAGE_INDICATE_UNBRIDGE;
+    msg.from = __FILE__;
+    msg.string_arg = peer_uuid;
+    switch_core_session_receive_message(session, &msg);
+
+
+	if (switch_event_create(&event, SWITCH_EVENT_CHANNEL_UNBRIDGE) == SWITCH_STATUS_SUCCESS) {
+		switch_channel_event_set_data(channel, event);
+		switch_event_fire(&event);
+	}
+
+    if (read_fd != FAX_INVALID_SOCKET) {
+        close(read_fd);
+        read_fd = FAX_INVALID_SOCKET;
+    }
+
+    if (write_fd != FAX_INVALID_SOCKET) {
+        close(write_fd);
+        write_fd = FAX_INVALID_SOCKET;
+    }
+
 
     switch_channel_hangup(other_channel, SWITCH_CAUSE_NORMAL_CLEARING);
     switch_core_session_rwunlock(other_session);
@@ -1692,6 +1786,10 @@ static switch_status_t t38_gateway_on_consume_media(switch_core_session_t *sessi
 static switch_status_t t38_gateway_on_reset(switch_core_session_t *session)
 {
     switch_channel_t *channel = switch_core_session_get_channel(session);
+
+    switch_channel_set_variable(channel, "rtp_autoflush_during_bridge", "false");
+    
+    switch_channel_clear_flag(channel, CF_REDIRECT);
 
     if (switch_channel_test_app_flag(channel, CF_APP_TAGGED)) {
         switch_channel_clear_app_flag(channel, CF_APP_TAGGED);
@@ -1746,7 +1844,10 @@ static switch_bool_t t38_gateway_start(switch_core_session_t *session, const cha
         switch_channel_set_app_flag(peer ? channel : other_channel, CF_APP_TAGGED);
         switch_channel_clear_app_flag(peer ? other_channel : channel, CF_APP_TAGGED);   
         
+        switch_channel_set_flag(channel, CF_REDIRECT);
         switch_channel_set_state(channel, CS_RESET);
+
+        switch_channel_set_flag(other_channel, CF_REDIRECT);
         switch_channel_set_state(other_channel, CS_RESET);
         
         switch_core_session_rwunlock(other_session);
@@ -1760,14 +1861,25 @@ static switch_bool_t t38_gateway_start(switch_core_session_t *session, const cha
 SWITCH_STANDARD_APP(t38_gateway_function)
 {
     switch_channel_t *channel = switch_core_session_get_channel(session);
+    time_t timeout = switch_epoch_time_now(NULL) + 20;
+    const char *var;
 
     if (zstr(data) || strcasecmp(data, "self")) {
         data = "peer";
     }
 
     switch_channel_set_variable(channel, "t38_leg", data);
+
+    if ((var = switch_channel_get_variable(channel, "t38_gateway_detect_timeout"))) {
+        long to = atol(var);
+        if (to > -1) {
+            timeout = (time_t) (switch_epoch_time_now(NULL) + to);
+        } else {
+            switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "%s invalid timeout value.\n", switch_channel_get_name(channel));
+        }
+    }
     
-	switch_ivr_tone_detect_session(session, "t38", "1100.0", "rw", 0, 1, data, NULL, t38_gateway_start);
+	switch_ivr_tone_detect_session(session, "t38", "1100.0", "rw", timeout, 1, data, NULL, t38_gateway_start);
 }
 
 
